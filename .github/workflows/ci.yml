@@ -94,6 +94,13 @@ jobs:
       - name: Download pre-built components
         run: cargo xtask download-components
 
+      - name: 教學標音：用加強詞庫重編 tsi.dat、word.dat
+        run: |
+          cargo install --locked chewing-cli --version 0.13.0 --root /tmp/chewing-cli --features sqlite-bundled
+          /tmp/chewing-cli/bin/chewing-cli init --csv --skip-invalid jiaoxue/tsi.csv build/installer/Dictionary/tsi.dat
+          /tmp/chewing-cli/bin/chewing-cli init --csv --skip-invalid jiaoxue/word.csv build/installer/Dictionary/word.dat
+          ls -la build/installer/Dictionary
+
       - uses: actions/upload-artifact@v7
         with:
           name: Installer Artifact With Debuginfo

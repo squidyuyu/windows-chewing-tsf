@@ -24,6 +24,7 @@ use chewing::input::keymap::{
 use chewing::input::keysym::{Keysym, SYM_CAPSLOCK, SYM_LEFTSHIFT, SYM_RIGHTSHIFT, SYM_SPACE};
 use chewing::input::{KeyState, KeyboardEvent, keycode, keysym};
 use chewing::zhuyin::Syllable;
+use super::ivs::{self, IvsSnapshot};
 use chewing_tip_core::config::{ChewingTsfConfig, Config};
 use chewing_tip_core::ipc::client::ChewingIpcClient;
 use chewing_tip_core::ipc::messages::{
@@ -184,6 +185,8 @@ pub(super) struct ChewingTextService {
     keymap: KeymapOp,
     keybindings: Vec<Keybinding>,
     chewing_editor: Editor,
+    // 教學標音字型：按鍵前的組字區（送字時加注音 IVS 讀音記號用）
+    ivs_snap: IvsSnapshot,
     notification: Option<ComObject<Notification>>,
     candidate_list: Option<ComObject<CandidateList>>,
     composition: Rc<RefCell<Option<ITfComposition>>>,
@@ -297,6 +300,7 @@ impl ChewingTextService {
             keymap: KeymapOp::None,
             keybindings: vec![],
             chewing_editor: editor,
+            ivs_snap: IvsSnapshot::default(),
             lang_bar_buttons,
             switch_lang_button,
             switch_shape_button,
@@ -579,6 +583,7 @@ impl ChewingTextService {
             return Ok(false);
         }
         let mut evt = ev.to_keyboard_event(self.keymap);
+        self.take_ivs_snapshot();
         debug!(evt:?; "on_keydown");
 
         // Handle keybindings
@@ -747,7 +752,7 @@ impl ChewingTextService {
         if !self.is_composing()
             && (last_behavior == EditorKeyBehavior::Commit || text_action.is_some())
         {
-            let text = self.chewing_editor.display_commit().to_owned();
+            let text = self.with_ivs(self.chewing_editor.display_commit());
             self.chewing_editor.ack();
             debug!(text; "commit string");
             self.insert_text(context, &text)?;
@@ -765,7 +770,7 @@ impl ChewingTextService {
         debug!("updated candidates");
 
         let commit = if last_behavior == EditorKeyBehavior::Commit {
-            let mut commit = self.chewing_editor.display_commit().to_owned();
+            let mut commit = self.with_ivs(self.chewing_editor.display_commit());
             self.chewing_editor.ack();
             if let Some(param) = text_action {
                 commit.push_str(&param);
@@ -946,8 +951,9 @@ impl ChewingTextService {
             self.toggle_keyboard_openclose();
             self.sync_lang_mode(false)?;
             if self.is_composing() && self.lang_mode.get().is_disabled() {
+                self.take_ivs_snapshot();
                 self.chewing_editor.commit()?;
-                let commit = self.chewing_editor.display_commit().to_owned();
+                let commit = self.with_ivs(self.chewing_editor.display_commit());
                 self.chewing_editor.ack();
                 debug!(commit; "commit string");
                 unsafe {
@@ -1422,6 +1428,18 @@ impl ChewingTextService {
         }
     }
 
+    /// 教學標音字型：記下按鍵前組字區每個字的注音
+    fn take_ivs_snapshot(&mut self) {
+        self.ivs_snap = ivs::snapshot(&self.chewing_editor.display(), self.chewing_editor.symbols());
+    }
+    /// 教學標音字型：送出的字加上注音 IVS 讀音記號（輸出簡體時不加）
+    fn with_ivs(&self, commit: &str) -> String {
+        if self.output_simp_chinese {
+            commit.to_owned()
+        } else {
+            ivs::annotate(commit, &self.ivs_snap)
+        }
+    }
     fn is_composing(&self) -> bool {
         // when candidate window is shown we are composing even without a composition
         self.composition.borrow().is_some() || self.candidate_list.is_some()

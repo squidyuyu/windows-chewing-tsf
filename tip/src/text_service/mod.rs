@@ -31,6 +31,7 @@ mod chewing;
 mod display_attribute;
 mod edit_session;
 mod icons;
+mod ivs;
 mod key_event;
 mod lang_bar;
 mod menu;
